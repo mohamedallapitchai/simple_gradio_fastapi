@@ -34,8 +34,6 @@ app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 # Dependency to get the current user
 def get_user(request: Request):
     user = request.session.get('user')
-    print(f"user is {user}")
-
     epoch_time = int(time.time())
 
     if (user is not None and user['exp'] is not None) and int(user['exp']) >= epoch_time:
@@ -61,24 +59,19 @@ async def logout(request: Request):
 @app.route('/login')
 async def login(request: Request):
     redirect_uri = request.url_for('auth')
-    # print(f"redirect_uri: {redirect_uri}")
     # If your app is running on https, you should ensure that the
     # `redirect_uri` is https, e.g. uncomment the following lines:
     #
     # from urllib.parse import urlparse, urlunparse
     # redirect_uri = urlunparse(urlparse(str(redirect_uri))._replace(scheme='https'))
-    # print(f"request in /login is {request}")
 
-    print(f"request.args.get state is {request.session.get('state'), 'NOT_AVAILABLE'}")
     resp = oauth.google.authorize_redirect(request, redirect_uri)
-    print(resp)
     return await resp
 
 
 @app.route('/auth')
 async def auth(request: Request):
     try:
-        # print(f"request in /auth is {request}")
         access_token = await oauth.google.authorize_access_token(request)
     except OAuthError:
         return RedirectResponse(url='/')
@@ -158,7 +151,6 @@ with gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
             reply = f"As Mohamed’s agent:\n {message}"
         else:
             note = " (AI-generated from Mohamed’s materials)"
-            print(f"len history is {len(history)}")
             first = len(history) == 0
             reply = f"I: {message}{note if first else ''}"
         history.append((message, reply))
