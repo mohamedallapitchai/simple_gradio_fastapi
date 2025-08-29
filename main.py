@@ -1,4 +1,3 @@
-import hashlib
 import os
 import time
 
@@ -7,10 +6,10 @@ import uvicorn
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, Request
+from langgraph_sdk import get_client, get_sync_client
 from starlette.config import Config
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import RedirectResponse
-import os
 
 app = FastAPI()
 
@@ -29,6 +28,16 @@ oauth.register(
 )
 
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+API_URL = os.getenv("LANGGRAPH_API_URL", "http://localhost:2024")
+ASSISTANT_ID = "agent"  # must match your langgraph.json
+client = get_client(url=API_URL)  # async client
+
+
+async def ensure_thread(thread_id):
+    if thread_id:
+        return thread_id
+    t = await client.threads.create()
+    return t["thread_id"]
 
 
 # Dependency to get the current user
@@ -65,7 +74,7 @@ async def login(request: Request):
     # from urllib.parse import urlparse, urlunparse
     # redirect_uri = urlunparse(urlparse(str(redirect_uri))._replace(scheme='https'))
 
-    resp = oauth.google.authorize_redirect(request, redirect_uri)
+    resp = oauth.google.authorize_redirect(request, redirect_uri, prompt='select_account', max_age=0)
     return await resp
 
 
@@ -84,7 +93,8 @@ with gr.Blocks() as login_demo:
 
 app = gr.mount_gradio_app(app, login_demo, path="/login-demo")
 
-with gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
+
+with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
     .note-text {
     font-size: 0.85em;
     color: #666666;   /* grey */
@@ -92,16 +102,20 @@ with gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
     margin-bottom: 3px;
     font-style: italic;
 }
-""") as main_demo:
+""") as main_demo):
+    redirector = gr.Textbox(visible=False)
+    redirector_url = gr.State(None)
     title = gr.Markdown("## 💬 Mohamed's Agent")
-    persona = gr.Radio(["Agent (3rd person)", "Speak as Me (1st person)"],
-                       value="Agent (3rd person)", label="Persona")
+    persona = gr.Radio(["Talk to Mohamed's agent", "Talk to Mohamed"],
+                       value="Talk to Mohamed's agent", label="Persona")
     disclosure = gr.Markdown("Note: Information provided by Mohamed’s AI career assistant, "
                              "based on his professional materials.", elem_classes="note-text")
+    persona_value = gr.State("agent")
 
     gr.Markdown("### Instructions")
     gr.Markdown("✅ Please ask questions related to only professional experience and technology")
     gr.Markdown("✅ Little casual talk is fine but don't go too far 🙂")
+
 
     chatbot = gr.Chatbot(
         label="Let’s Chat! 💬",
@@ -120,12 +134,13 @@ with gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
     msg = gr.Textbox(
         placeholder="Type your message here...",
         show_label=False,
-        container=False
+        container=False,
+        elem_id="msg_box"
     )
 
 
     def on_persona_change(p):
-        show = (p == "Speak as Me (1st person)")
+        show = (p == "Talk to Mohamed")
         if show:
             chat_title = gr.Markdown("## 💬 Mohamed as ChatBot")
             disclaimer = gr.update(visible=show,
@@ -133,38 +148,84 @@ with gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
                                          "based on his professional materials. "
                                          "It is AI-assisted and not always 100% accurate."
                                    )
+            persona = gr.update(interactive=False)
+            persona_value = "me"
         else:
             chat_title = gr.Markdown("## 💬 Mohamed's Agent")
             disclaimer = gr.update(visible=True,
                                    value="Note: Information provided by Mohamed’s AI career assistant, "
                                          "based on his professional materials.")
-        return chat_title, disclaimer
+            persona = gr.update(interactive=False)
+            persona_value = "agent"
+        return chat_title, disclaimer, persona, persona_value
 
 
-    persona.change(on_persona_change, persona, [title, disclosure])
+    def extract_text(piece):
+        """Be tolerant to different stream chunk shapes; return text delta if present."""
+        if piece and 'messages' in piece:
+            resp_msg = piece["messages"][-1]
+            if (resp_msg['type'] == "ai"):
+                return resp_msg["content"]
+        return ""
 
 
-    def respond(message, history, persona_option):
-        # Plug your RAG/LLM call here using `system` and retrieved chunks.
-        # For demo purposes:
-        if persona_option == "Agent (3rd person)":
-            reply = f"As Mohamed’s agent:\n {message}"
+    persona.change(on_persona_change, persona, [title, disclosure, persona, persona_value])
+
+    def update_value(r_url):
+        print(f"REDIRECT URL BEING SENT {r_url}")
+        return r_url
+
+    async def respond(message, history, thread_id, persona_option):
+        # 1) Persist or create a thread (so responses have conversation memory)
+        thread_id = await ensure_thread(thread_id)
+
+        # 2) Show the user bubble immediately
+        history = history + [(message, "")]
+        yield "", history, thread_id, gr.update(), ""
+
+        # 3) Stream the assistant’s reply from LangGraph
+        assistant_text = ""
+        if persona_option == "Talk to Mohamed's agent":
+            reply = f"As Mohamed’s agent:\n"
+            persona_value_str = "agent"
         else:
-            note = " (AI-generated from Mohamed’s materials)"
-            first = len(history) == 0
-            reply = f"I: {message}{note if first else ''}"
-        history.append((message, reply))
-        return "", history
+            reply = f"I: "
+            persona_value_str = "me"
 
+        async for chunk in client.runs.stream(
+                thread_id,
+                ASSISTANT_ID,
+                input={"messages": [{"role": "user", "content": message}]},
+                stream_mode="values",  # adjust if you prefer "updates"
+                context={"ctr_th": 10, "courtesy_ctr_th": 3, "personal_ctr_th": 3, "persona": persona_value_str}
+        ):
+            text_delta = extract_text(getattr(chunk, "data", ""))  # pull out any text
+            if text_delta:
+                assistant_text += text_delta
+                history[-1] = (message, f"{reply}{assistant_text}")  # update the last assistant bubble
+                yield "", history, thread_id, gr.update(), ""
 
-    # def respond(message, chat_history):
-    #     bot_message = f"🤖 You said: {message}"
-    #     chat_history.append((message, bot_message))
-    #     return "", chat_history
+        if assistant_text.find("Good Bye") != -1:
+            yield ("", history, None, gr.update(interactive=False,
+                                                placeholder="Logging Out - exceeding casual talk threshold"),
+                   "/logout")
+        else:
+            yield "", history, thread_id, gr.update(), ""
 
-    msg.submit(respond, [msg, chatbot, persona], [msg, chatbot])
-
-    # msg.submit(respond, [msg, chatbot], [msg, chatbot])
+    thread_state = gr.State(None)  # holds LangGraph thread_id
+    msg.submit(respond, [msg, chatbot, thread_state, persona], [msg, chatbot, thread_state, msg, redirector])
+    redirector.change(
+        lambda x: x,
+        redirector,
+        None,
+        js="""(redirector) => {
+                console.log(redirector)
+                if (redirector === "/logout") {
+                    //window.location.href = redirector;
+                    setTimeout(() => { window.location.href = redirector; }, 3000);
+                }
+            }"""
+    )
 
 app = gr.mount_gradio_app(app, main_demo, path="/gradio", auth_dependency=get_user)
 
