@@ -72,14 +72,14 @@ async def logout(request: Request):
 async def login(request: Request):
     redirect_uri = request.url_for('auth')
 
-    if urlparse(str(redirect_uri)).scheme == "https":
-        redirect_uri = urlunparse(urlparse(str(redirect_uri))._replace(scheme='https'))
+    # if urlparse(str(redirect_uri)).scheme == "https":
+    #     redirect_uri = urlunparse(urlparse(str(redirect_uri))._replace(scheme='https'))
 
     # If your app is running on https, you should ensure that the
     # `redirect_uri` is https, e.g. uncomment the following lines:
     #
     # from urllib.parse import urlparse, urlunparse
-    #redirect_uri = urlunparse(urlparse(str(redirect_uri))._replace(scheme='https'))
+    redirect_uri = urlunparse(urlparse(str(redirect_uri))._replace(scheme='https'))
 
     resp = oauth.google.authorize_redirect(request, redirect_uri, prompt='select_account', max_age=0)
     return await resp
