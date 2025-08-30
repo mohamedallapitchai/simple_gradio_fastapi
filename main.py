@@ -8,7 +8,7 @@ import uvicorn
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, Request
-from langgraph_sdk import get_client, get_sync_client
+from langgraph_sdk import get_client
 from starlette.config import Config
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import RedirectResponse
