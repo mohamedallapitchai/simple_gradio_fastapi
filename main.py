@@ -72,14 +72,12 @@ async def logout(request: Request):
 async def login(request: Request):
     redirect_uri = request.url_for('auth')
 
-    # if urlparse(str(redirect_uri)).scheme == "https":
-    #     redirect_uri = urlunparse(urlparse(str(redirect_uri))._replace(scheme='https'))
 
     # If your app is running on https, you should ensure that the
     # `redirect_uri` is https, e.g. uncomment the following lines:
     #
     # from urllib.parse import urlparse, urlunparse
-    redirect_uri = urlunparse(urlparse(str(redirect_uri))._replace(scheme='https'))
+    #redirect_uri = urlunparse(urlparse(str(redirect_uri))._replace(scheme='https'))
 
     resp = oauth.google.authorize_redirect(request, redirect_uri, prompt='select_account', max_age=0)
     return await resp
@@ -209,13 +207,12 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
                     ASSISTANT_ID,
                     input={"messages": [{"role": "user", "content": message}]},
                     stream_mode="values",  # adjust if you prefer "updates"
-                    context={"ctr_th": 10, "courtesy_ctr_th": 3, "personal_ctr_th": 3, "persona": persona_value_str}
+                    context={"ctr_th": 100, "courtesy_ctr_th": 10, "personal_ctr_th": 3,
+                             "persona": persona_value_str, "name": "Mohamed"}
             ):
                 text_delta = extract_text(getattr(chunk, "data", ""))  # pull out any text
                 if text_delta:
                     assistant_text = (assistant_text or "") + text_delta
-                    #history[-1] = (message, f"{reply}{assistant_text}")  # update the last assistant bubble
-                    #yield "", history, thread_id, gr.update(), ""
                 done = True
 
         task = asyncio.create_task(reader())
@@ -239,7 +236,7 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
         if assistant_text.find("Good Bye") != -1:
             history[-1] = (message, f"{reply}{assistant_text or ''}")
             yield ("", history, None, gr.update(interactive=False,
-                                                placeholder="Logging Out - exceeding casual talk threshold"),
+                                                placeholder="Logging Out - exceeding talk threshold"),
                    "/logout")
         else:
             history[-1] = (message, f"{reply}{assistant_text or ''}")
