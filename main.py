@@ -1,5 +1,7 @@
+import asyncio
 import os
 import time
+from urllib.parse import urlunparse, urlparse
 
 import gradio as gr
 import uvicorn
@@ -30,7 +32,8 @@ oauth.register(
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 API_URL = os.getenv("LANGGRAPH_API_URL", "http://localhost:2024")
 ASSISTANT_ID = "agent"  # must match your langgraph.json
-client = get_client(url=API_URL)  # async client
+API_KEY = os.getenv("LANGSMITH_API_KEY")
+client = get_client(url=API_URL, api_key=API_KEY)  # async client
 
 
 async def ensure_thread(thread_id):
@@ -68,11 +71,15 @@ async def logout(request: Request):
 @app.route('/login')
 async def login(request: Request):
     redirect_uri = request.url_for('auth')
+
+    if urlparse(str(redirect_uri)).scheme == "https":
+        redirect_uri = urlunparse(urlparse(str(redirect_uri))._replace(scheme='https'))
+
     # If your app is running on https, you should ensure that the
     # `redirect_uri` is https, e.g. uncomment the following lines:
     #
     # from urllib.parse import urlparse, urlunparse
-    # redirect_uri = urlunparse(urlparse(str(redirect_uri))._replace(scheme='https'))
+    #redirect_uri = urlunparse(urlparse(str(redirect_uri))._replace(scheme='https'))
 
     resp = oauth.google.authorize_redirect(request, redirect_uri, prompt='select_account', max_age=0)
     return await resp
@@ -92,7 +99,6 @@ with gr.Blocks() as login_demo:
     gr.Button("Login", link="/login")
 
 app = gr.mount_gradio_app(app, login_demo, path="/login-demo")
-
 
 with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
     .note-text {
@@ -115,7 +121,6 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
     gr.Markdown("### Instructions")
     gr.Markdown("✅ Please ask questions related to only professional experience and technology")
     gr.Markdown("✅ Little casual talk is fine but don't go too far 🙂")
-
 
     chatbot = gr.Chatbot(
         label="Let’s Chat! 💬",
@@ -171,9 +176,13 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
 
     persona.change(on_persona_change, persona, [title, disclosure, persona, persona_value])
 
+
     def update_value(r_url):
-        print(f"REDIRECT URL BEING SENT {r_url}")
         return r_url
+
+
+    SPINNER = ["🌍", "🌎", "🌏"]
+
 
     async def respond(message, history, thread_id, persona_option):
         # 1) Persist or create a thread (so responses have conversation memory)
@@ -184,7 +193,8 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
         yield "", history, thread_id, gr.update(), ""
 
         # 3) Stream the assistant’s reply from LangGraph
-        assistant_text = ""
+        assistant_text = None
+        done = False
         if persona_option == "Talk to Mohamed's agent":
             reply = f"As Mohamed’s agent:\n"
             persona_value_str = "agent"
@@ -192,25 +202,49 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
             reply = f"I: "
             persona_value_str = "me"
 
-        async for chunk in client.runs.stream(
-                thread_id,
-                ASSISTANT_ID,
-                input={"messages": [{"role": "user", "content": message}]},
-                stream_mode="values",  # adjust if you prefer "updates"
-                context={"ctr_th": 10, "courtesy_ctr_th": 3, "personal_ctr_th": 3, "persona": persona_value_str}
-        ):
-            text_delta = extract_text(getattr(chunk, "data", ""))  # pull out any text
-            if text_delta:
-                assistant_text += text_delta
-                history[-1] = (message, f"{reply}{assistant_text}")  # update the last assistant bubble
-                yield "", history, thread_id, gr.update(), ""
+        async def reader():
+            nonlocal assistant_text, done
+            async for chunk in client.runs.stream(
+                    thread_id,
+                    ASSISTANT_ID,
+                    input={"messages": [{"role": "user", "content": message}]},
+                    stream_mode="values",  # adjust if you prefer "updates"
+                    context={"ctr_th": 10, "courtesy_ctr_th": 3, "personal_ctr_th": 3, "persona": persona_value_str}
+            ):
+                text_delta = extract_text(getattr(chunk, "data", ""))  # pull out any text
+                if text_delta:
+                    assistant_text = (assistant_text or "") + text_delta
+                    #history[-1] = (message, f"{reply}{assistant_text}")  # update the last assistant bubble
+                    #yield "", history, thread_id, gr.update(), ""
+                done = True
+
+        task = asyncio.create_task(reader())
+
+        i = 0
+
+        while not done and assistant_text is None:
+            history[-1] = (message, f"{SPINNER[i % len(SPINNER)]} _typing…_")
+            i += 1
+            yield "", history, thread_id, gr.update(), ""
+            await asyncio.sleep(0.05)
+
+        while not done:
+            print(f"assistant_text in not done is {assistant_text}")
+            history[-1] = (message, f"{reply}{assistant_text or ''}")
+            yield "", history, thread_id, gr.update(), ""
+            await asyncio.sleep(0.05)
+
+        await task
 
         if assistant_text.find("Good Bye") != -1:
+            history[-1] = (message, f"{reply}{assistant_text or ''}")
             yield ("", history, None, gr.update(interactive=False,
                                                 placeholder="Logging Out - exceeding casual talk threshold"),
                    "/logout")
         else:
+            history[-1] = (message, f"{reply}{assistant_text or ''}")
             yield "", history, thread_id, gr.update(), ""
+
 
     thread_state = gr.State(None)  # holds LangGraph thread_id
     msg.submit(respond, [msg, chatbot, thread_state, persona], [msg, chatbot, thread_state, msg, redirector])
