@@ -29,7 +29,7 @@ oauth.register(
     client_kwargs={'scope': 'openid email profile'},
 )
 
-app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, max_age=None)
 API_URL = os.getenv("LANGGRAPH_API_URL", "http://localhost:2024")
 ASSISTANT_ID = "agent"  # must match your langgraph.json
 API_KEY = os.getenv("LANGSMITH_API_KEY")
@@ -107,8 +107,11 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
     font-style: italic;
 }
 """) as main_demo):
+
     redirector = gr.Textbox(visible=False)
     redirector_url = gr.State(None)
+    loggedin_user = gr.State()
+
     title = gr.Markdown("## 💬 Mohamed's Agent")
     persona = gr.Radio(["Talk to Mohamed's agent", "Talk to Mohamed"],
                        value="Talk to Mohamed's agent", label="Persona")
@@ -117,8 +120,22 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
     persona_value = gr.State("agent")
 
     gr.Markdown("### Instructions")
-    gr.Markdown("✅ Please ask questions related to only professional experience and technology")
+    gr.Markdown("✅ Please ask questions related to my professional experience and technology")
     gr.Markdown("✅ Little casual talk is fine but don't go too far 🙂")
+    gr.Markdown("✅ Please be courteous and professional")
+    gr.Markdown("✅ The chat would end if it detects a lot of casual talk")
+
+
+    # 1) Load-time: copy user from the request into Gradio state (optional but handy)
+    def load_user(request: gr.Request):
+        # access user stashed by dependency
+        user = getattr(request.state, "user", None)
+        # fallback if you store it in session instead of state
+        if user is None and hasattr(request, "session"):
+            user = request.session.get("user")
+            log_name = dict(user)["given_name"]
+        chat = [(None, f"Hi {log_name.capitalize()}!")]
+        return log_name.capitalize(), chat
 
     chatbot = gr.Chatbot(
         label="Let’s Chat! 💬",
@@ -130,9 +147,9 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
         resizable=True
     )
 
-    chatbot.value = [
-        (None, "👋 " + "Hi there!"),
-    ]
+    # chatbot.value = [
+    #     (None, "👋 " + f"Hi {loggedin_user.value}!"),
+    # ]
 
     msg = gr.Textbox(
         placeholder="Type your message here...",
@@ -182,7 +199,7 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
     SPINNER = ["🌍", "🌎", "🌏"]
 
 
-    async def respond(message, history, thread_id, persona_option):
+    async def respond(message, history, thread_id, persona_option, loggedin_user):
         # 1) Persist or create a thread (so responses have conversation memory)
         thread_id = await ensure_thread(thread_id)
 
@@ -208,7 +225,8 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
                     input={"messages": [{"role": "user", "content": message}]},
                     stream_mode="values",  # adjust if you prefer "updates"
                     context={"ctr_th": 100, "courtesy_ctr_th": 10, "personal_ctr_th": 3,
-                             "persona": persona_value_str, "name": "Mohamed"}
+                             "persona": persona_value_str, "name": "Mohamed",
+                             "loggedin_name": loggedin_user}
             ):
                 text_delta = extract_text(getattr(chunk, "data", ""))  # pull out any text
                 if text_delta:
@@ -226,7 +244,6 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
             await asyncio.sleep(0.05)
 
         while not done:
-            print(f"assistant_text in not done is {assistant_text}")
             history[-1] = (message, f"{reply}{assistant_text or ''}")
             yield "", history, thread_id, gr.update(), ""
             await asyncio.sleep(0.05)
@@ -244,7 +261,7 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
 
 
     thread_state = gr.State(None)  # holds LangGraph thread_id
-    msg.submit(respond, [msg, chatbot, thread_state, persona], [msg, chatbot, thread_state, msg, redirector])
+    msg.submit(respond, [msg, chatbot, thread_state, persona, loggedin_user], [msg, chatbot, thread_state, msg, redirector])
     redirector.change(
         lambda x: x,
         redirector,
@@ -257,8 +274,9 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
                 }
             }"""
     )
+    main_demo.load(load_user, inputs=None, outputs=[loggedin_user, chatbot])
+
 
 app = gr.mount_gradio_app(app, main_demo, path="/gradio", auth_dependency=get_user)
-
 if __name__ == '__main__':
     uvicorn.run(app)
