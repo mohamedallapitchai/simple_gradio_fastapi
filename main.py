@@ -110,8 +110,9 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
     loggedin_user = gr.State()
 
     title = gr.Markdown("## 💬 Mohamed's Agent")
-    persona = gr.Radio(["Talk to Mohamed's agent"],
-                       value="Talk to Mohamed's agent", label="Persona")
+    #persona = gr.Radio(["Talk to Mohamed's agent"],
+    #                   value="Talk to Mohamed's agent", label="Persona")
+    persona = "Talk to Mohamed's agent"
     disclosure = gr.Markdown("Note: Information provided by Mohamed’s AI career assistant, "
                              "based on his professional materials.", elem_classes="note-text")
     persona_value = gr.State("agent")
