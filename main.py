@@ -1,8 +1,6 @@
 import asyncio
 import os
 import time
-from urllib.parse import urlunparse, urlparse
-
 import gradio as gr
 import uvicorn
 from authlib.integrations.starlette_client import OAuth, OAuthError
@@ -12,6 +10,7 @@ from langgraph_sdk import get_client
 from starlette.config import Config
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import RedirectResponse
+from urllib.parse import urlunparse, urlparse
 
 app = FastAPI()
 
@@ -72,7 +71,6 @@ async def logout(request: Request):
 async def login(request: Request):
     redirect_uri = request.url_for('auth')
 
-
     # If your app is running on https, you should ensure that the
     # `redirect_uri` is https, e.g. uncomment the following lines:
     #
@@ -107,13 +105,12 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
     font-style: italic;
 }
 """) as main_demo):
-
     redirector = gr.Textbox(visible=False)
     redirector_url = gr.State(None)
     loggedin_user = gr.State()
 
     title = gr.Markdown("## 💬 Mohamed's Agent")
-    persona = gr.Radio(["Talk to Mohamed's agent", "Talk to Mohamed"],
+    persona = gr.Radio(["Talk to Mohamed's agent"],
                        value="Talk to Mohamed's agent", label="Persona")
     disclosure = gr.Markdown("Note: Information provided by Mohamed’s AI career assistant, "
                              "based on his professional materials.", elem_classes="note-text")
@@ -136,6 +133,7 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
             log_name = dict(user)["given_name"]
         chat = [(None, f"Hi {log_name.capitalize()}!")]
         return log_name.capitalize(), chat
+
 
     chatbot = gr.Chatbot(
         label="Let’s Chat! 💬",
@@ -261,7 +259,8 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
 
 
     thread_state = gr.State(None)  # holds LangGraph thread_id
-    msg.submit(respond, [msg, chatbot, thread_state, persona, loggedin_user], [msg, chatbot, thread_state, msg, redirector])
+    msg.submit(respond, [msg, chatbot, thread_state, persona, loggedin_user],
+               [msg, chatbot, thread_state, msg, redirector])
     redirector.change(
         lambda x: x,
         redirector,
@@ -275,7 +274,6 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
             }"""
     )
     main_demo.load(load_user, inputs=None, outputs=[loggedin_user, chatbot])
-
 
 app = gr.mount_gradio_app(app, main_demo, path="/gradio", auth_dependency=get_user)
 if __name__ == '__main__':
