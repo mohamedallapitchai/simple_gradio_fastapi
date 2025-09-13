@@ -198,7 +198,7 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
     SPINNER = ["🌍", "🌎", "🌏"]
 
 
-    async def respond(message, history, thread_id, persona_option, loggedin_user):
+    async def respond(message, history, thread_id, loggedin_user):
         # 1) Persist or create a thread (so responses have conversation memory)
         thread_id = await ensure_thread(thread_id)
 
@@ -209,12 +209,15 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
         # 3) Stream the assistant’s reply from LangGraph
         assistant_text = None
         done = False
-        if persona_option == "Talk to Mohamed's agent":
-            reply = f"As Mohamed’s agent:\n"
-            persona_value_str = "agent"
-        else:
-            reply = f"I: "
-            persona_value_str = "me"
+        persona_value_str = "agent"
+        reply = f"As Mohamed’s agent:\n"
+
+        # if persona_option == "Talk to Mohamed's agent":
+        #     reply = f"As Mohamed’s agent:\n"
+        #     persona_value_str = "agent"
+        # else:
+        #     reply = f"I: "
+        #     persona_value_str = "me"
 
         async def reader():
             nonlocal assistant_text, done
@@ -260,7 +263,7 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
 
 
     thread_state = gr.State(None)  # holds LangGraph thread_id
-    msg.submit(respond, [msg, chatbot, thread_state, persona, loggedin_user],
+    msg.submit(respond, [msg, chatbot, thread_state, loggedin_user],
                [msg, chatbot, thread_state, msg, redirector])
     redirector.change(
         lambda x: x,
