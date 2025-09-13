@@ -188,7 +188,7 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
         return ""
 
 
-    persona.change(on_persona_change, persona, [title, disclosure, persona, persona_value])
+    #persona.change(on_persona_change, persona, [title, disclosure, persona, persona_value])
 
 
     def update_value(r_url):
