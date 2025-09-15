@@ -1,6 +1,8 @@
 import asyncio
 import os
 import time
+from urllib.parse import urlunparse, urlparse
+
 import gradio as gr
 import uvicorn
 from authlib.integrations.starlette_client import OAuth, OAuthError
@@ -10,7 +12,6 @@ from langgraph_sdk import get_client
 from starlette.config import Config
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import RedirectResponse
-from urllib.parse import urlunparse, urlparse
 
 app = FastAPI()
 
@@ -110,7 +111,7 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
     loggedin_user = gr.State()
 
     title = gr.Markdown("## 💬 Mohamed's Agent")
-    #persona = gr.Radio(["Talk to Mohamed's agent"],
+    # persona = gr.Radio(["Talk to Mohamed's agent"],
     #                   value="Talk to Mohamed's agent", label="Persona")
     persona = "Talk to Mohamed's agent"
     disclosure = gr.Markdown("Note: Information provided by Mohamed’s AI career assistant, "
@@ -131,7 +132,7 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
         # fallback if you store it in session instead of state
         if user is None and hasattr(request, "session"):
             user = request.session.get("user")
-            log_name = dict(user)["given_name"]
+            log_name = dict(user)["name"]
         chat = [(None, f"Hi {log_name.capitalize()}!")]
         return log_name.capitalize(), chat
 
@@ -188,8 +189,7 @@ with (gr.Blocks(theme=gr.themes.Soft(), css=""".svelte-vzs2gq {display: none;}
         return ""
 
 
-    #persona.change(on_persona_change, persona, [title, disclosure, persona, persona_value])
-
+    # persona.change(on_persona_change, persona, [title, disclosure, persona, persona_value])
 
     def update_value(r_url):
         return r_url
